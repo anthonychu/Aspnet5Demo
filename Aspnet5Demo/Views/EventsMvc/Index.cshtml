@@ -1,0 +1,167 @@
+﻿@{
+    ViewBag.Title = "Events";
+}
+
+<div id="mainDiv" class="container" ng-app="Events" ng-controller="EventsCtrl">
+    <h2>Events</h2>
+
+    <div class="row filters">
+        <div class="col-sm-6">
+            <div class="input-group">
+                <span class="input-group-addon"><span class="glyphicon glyphicon-search"></span></span>
+                <input class="form-control" ng-model="searchText" placeholder="Search" />
+            </div>
+        </div>
+        <div class="col-sm-6">
+            <div class="btn-group">
+                <button type="button" class="btn btn-default" ng-class="{active: sortAscending}" ng-click="sortAscending = true"><span class="glyphicon glyphicon-sort-by-attributes"></span> Date Ascending</button>
+                <button type="button" class="btn btn-default" ng-class="{active: !sortAscending}" ng-click="sortAscending = false"><span class="glyphicon glyphicon-sort-by-attributes-alt"></span> Date Descending</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="row" ng-repeat="event in events | filter: searchText | orderBy: 'date' : !sortAscending">
+        <hr />
+        <div class="col-sm-10">
+            <div class="event-topic" ng-bind="event.topic"></div>
+            <div class="container event-details">
+                <div class="col-sm-4"><span class="glyphicon glyphicon-calendar"></span> <span ng-bind="event.date | date: 'MMMM d, yyyy - h:mma'"></span></div>
+                <div class="col-sm-3"><span class="glyphicon glyphicon-user"></span> <span ng-bind="event.speaker"></span></div>
+                <div class="col-sm-3"><span class="registered" ng-bind="event.userCount" data-highlight-on-change="event.userCount"></span> registered</div>
+            </div>
+        </div>
+        <div class="col-sm-2">
+            <div class="container">
+                <button class="btn btn-primary" ng-hide="event.registered" ng-click="registerEvent(event)">Register</button>
+                <button class="btn btn-default" ng-show="event.registered" ng-click="unregisterEvent(event)">Unregister</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section scripts {
+    <script src="~/Scripts/angular.js"></script>
+    <script src="~/Scripts/toastr.js"></script>
+    <link href="~/Content/toastr.css" rel="stylesheet" />
+
+    <script>
+        var app = angular.module("Events", []);
+
+        app.value('toastr', toastr);
+
+        app.config(['$httpProvider', function ($httpProvider) {
+            $httpProvider.defaults.headers.common = { 'X-Requested-With': 'XMLHttpRequest' };
+        }]);
+
+        app.factory("EventsSvc", ['$http', function ($http) {
+            var getEvents = function () {
+                return $http.get('/api/events');
+            };
+
+            var registerEvent = function (eventId) {
+                return $http({
+                    url: '/api/events/register',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    data: eventId
+                });
+            };
+
+            var unregisterEvent = function (eventId) {
+                return $http({
+                    url: '/api/events/unregister',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    data: eventId
+                });
+            };
+
+            return {
+                getEvents: getEvents,
+                registerEvent: registerEvent,
+                unregisterEvent: unregisterEvent
+            };
+        }]);
+
+        app.controller("EventsCtrl", ['$scope', 'EventsSvc', 'toastr', function ($scope, EventsSvc, toastr) {
+
+            $scope.sortAscending = true;
+
+            EventsSvc.getEvents()
+                    .success(function (data) {
+                        $scope.events = data;
+                    })
+                    .error(function () {
+                        toastr.error("Couldn't get event list");
+                    });
+
+            $scope.registerEvent = function (event) {
+                EventsSvc.registerEvent(event.id)
+                    .success(function () {
+                        toastr.success(event.topic);
+                        event.registered = true;
+                    })
+                    .error(function () {
+                        toastr.error("Failed to register to " + event.topic + "!");
+                    });
+            };
+
+            $scope.unregisterEvent = function (event) {
+                EventsSvc.unregisterEvent(event.id)
+                    .success(function () {
+                        toastr.info("Unregistered!");
+                        event.registered = false;
+                    })
+                    .error(function () {
+                        toastr.error("Failed to unregister from " + event.topic + "!");
+                    });
+            };
+
+            $scope.updateEvent = function (eventId, newCount) {
+                var event = null;
+                for (var i = 0; i < $scope.events.length; i++) {
+                    if ($scope.events[i].id === eventId) {
+                        event = $scope.events[i];
+                        break;
+                    }
+                }
+
+                if (event !== null) {
+                    event.userCount = newCount;
+                }
+            };
+        }]);
+
+        app.directive('highlightOnChange', ['$timeout', function ($timeout) {
+            return {
+                restrict: 'A',
+                scope: { highlightOnChange: '=' },
+                link: function (scope, element, attrs) {
+                    scope.$watch('highlightOnChange', function (newVal, oldVal) {
+                        if (newVal === oldVal) {
+                            return;
+                        }
+                        element.addClass("highlight");
+                        $timeout(function () { element.removeClass("highlight") }, 3000);
+                    });
+                }
+            };
+        }]);
+    </script>
+
+    <script src="~/Scripts/jquery.signalR-2.0.2.js"></script>
+    <script type="text/javascript" src="~/signalr/hubs"></script>
+    <script>
+        // demo code only... code should be wrapped in a service
+        $(function () {
+            var eventsHub = $.connection.eventsHub;
+            eventsHub.client.updateEvent = function (eventId, newCount) {
+                // get rootScope
+                var $scope = $("#mainDiv").scope();
+                $scope.updateEvent(eventId, newCount);
+                $scope.$apply();
+            };
+            $.connection.hub.start();
+        });
+    </script>
+}
